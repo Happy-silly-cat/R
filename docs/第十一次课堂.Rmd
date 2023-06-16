@@ -1,0 +1,136 @@
+---
+title: "第十一次课堂"
+author: "肖文赜"
+date: "2023-05-19"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## t检验
+
+t检验也是一种线性回归，Y是连续变量，X是分类变量。t检验适用于分类变量在2个。如果有更多，则需要使用单因素方差分析。
+
+### 参数t检验
+
+```{r}
+#分了三组数据，选择其中两组做分析，是t检验
+PlantGrowth
+d1 <- subset(PlantGrowth, group %in% c("ctrl", "trt2"))
+d1
+# t检验步骤1：正态分布检验
+d1_ctrl <- subset(d1, group=="ctrl") # 筛选ctrl组数据
+shapiro.test(d1_ctrl$weight)
+d1_trt2 <- subset(d1, group=="trt2") # 筛选trt2组数据
+shapiro.test(d1_trt2$weight)
+#ks函数也可以检验正态分布
+ks.test(d1_trt2$weight, "pnorm", mean=mean(d1_trt2$weight), sd=sd(d1_trt2$weight))
+# p值均大于0.05，因此均符合正态分布（接受原假设）
+# 步骤2：方差齐性
+bartlett.test(weight ~ group, data=d1)
+#p值大于0.05，说明接受原假设，具备方差齐性
+#如果方差不齐，就不能用student t test，需要用welch t test（R默认）
+#如果数据满足正态分布，也可以用其他函数检验方差齐性
+var.test(weight ~ group, data = d1)
+car::leveneTest(weight ~ group, data = d1)
+fligner.test(weight ~ group, data = d1)
+# 步骤3：选择合适的方法
+#独立双样本t检验
+#对于长数据表，使用公式表示t.test。默认是welch t
+t.test(weight ~ group, data = d1)
+#p小于0.05，说明数据存在显著差异，看t值，是负号，说明第一组数据比第二组数据要小，welch t的自由度不是整数。
+#95%置信区间是两组数均值之差的95%置信区间，都小于0，所以第一组小于第二组。所以会有显著差别
+#最下估计的就是平均值
+#如果要使用student t，则要告诉函数，方差齐性，如果方差齐性建议用这个p值小点
+t.test(weight ~ group, data = d1, var.equal = TRUE)
+#单侧t检验
+#单侧t检验的假设是建立在你对于结果已经有预期了，如第一组会小于第二组，或第一组会大于第二组
+#这里设定less，则备择假设就是第一组小于第二组
+#p=0.02395所以接受备择假设
+t.test(d1_ctrl$weight, d1_trt2$weight, alternative = "less")
+
+# 步骤4：结果解毒
+# 步骤5：计算效应值
+
+#t检验是特殊的线性回归
+mod.1 <- lm(weight ~ group, data = d1)
+summary(mod.1)
+#一组是连续，一组是分类，那就是平均值的连线，设置species的虚拟变量为0和1
+#所以看两组数据有没有差，就是看斜率显不显著
+#其中p-value就是t检验中的p值=0.469（pr>t)
+```
+
+### 配对样本t检验
+
+```{r}
+library(tidyverse)
+#同一个样本有两组处理的数据，从而对比两组处理的检验
+ID <- 1:20
+S2 <- c(94,86,85,90,90,86,84,98,88,92,85,96,84,76,85,87,90,88,80,81) #作业2分数
+S3 <- c(88,82,76,84,88,84,93,94,82,80,82,86,86,78,90,88,86,84,83,84) #作业3分数
+d2 <- d_score %>%
+pivot_longer(cols=2:3)
+d_score <- data.frame(ID, S2, S3)
+ggplot(d2, aes(name, value))+
+geom_point()+
+geom_line(aes(group = ID))
+#检验差值是否符合正态分布(而无需检验两组数据单独是否符合正态分布)
+shapiro.test(d_score$S2 - d_score$S3)
+#配对t检验
+#不显著，p>0.05，且95置信区间包括0，两次差值为2.35
+t.test(d_score$S2, d_score$S3, paired = T)
+```
+
+### 单样本t检验
+
+```{r}
+# CO标准气体样品的参考值是70ppm，现用仪器测定6次，读数分别为72，79，65，84，67，77，该仪器的测定值
+# 和标准参考值是否有显著差异
+d_CO <- c(72, 79, 65, 84, 67, 77)
+t.test(d_CO, mu=70)
+#p>0.2384接收原假设，所以无显著差异
+#配对t检验等价于单样本t检验，配对t检验就是检验差值和0是否有显著差异（所以检验正态分布也是检验差值）。如果没差异，说明两组均值相同，就说明两组没差异。但是配对样本t检验必须是配对的（一个观察两个处理）。不同于双样本t检验，要区别。
+
+```
+
+### 稳健t检验
+
+```{r}
+#如果数据不满足正态分布，方差齐性等要求，就不能用上面各种方法，可以考虑稳健t检验
+install.packages('WRS2')
+library(WRS2)
+women_wt <- c(38.9, 61.2, 73.3, 21.8, 63.4, 64.6, 48.4, 48.8, 48.5)
+men_wt <- c(67.8, 60, 63.4, 76, 89.4, 73.3, 67.3, 61.3, 62.4)
+d3 <- data.frame(grp = rep(c("woman", "man"), each = 9),
+wt = c(women_wt, men_wt))
+yuen(wt ~ grp, data = d3)
+#p＜0.05，所以两组数据有显著差异
+#默认设置tr = 0.2，即切去最⼤20%和最⼩20%的数，然后进⾏Welch t检验；如果置tr =0，就是Welch t检验,自己看要截取多少的数，能让p＜0.05，此时就是适合t检验的数据
+yuenbt(wt ~ grp, data = d3, tr = 0.2, nboot = 2000)
+#yuen的bootstrap版本
+pb2gen(wt ~ grp, data = d3, est = "mom", nboot = 2000)
+```
+
+### 效应值
+
+```{r}
+#例如一组数据都是169.9，另一组都是170.0.两组如果用t.test看
+#p值是会有极显著差异，但实际上这个0.1的差别是不重要的。就要用效应值来衡量
+df <- data.frame(group=c('a','a','a','a','a',
+                         'b','b','b','b','b'),
+                 x=c(169.9,169.91,169.92,169.93,169.94,
+                     170.1,170.2,170.3,170.4,170.5))
+t.test(x~group,df)
+```
+
+### 非参数检验
+
+```{r}
+#也是如果参数不符合正态分布等，就是用非参数检验
+wilcox.test(women_wt, men_wt)
+```
